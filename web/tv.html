@@ -13,8 +13,8 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; }
-  video-stream, video#v { position: absolute; inset: 0; width: 100%; height: 100%; }
-  video-stream video, video#v { width: 100% !important; height: 100% !important; object-fit: contain; background: #000; }
+  .player { position: absolute; inset: 0; width: 100%; height: 100%; }
+  video-stream.player video, video.player { width: 100% !important; height: 100% !important; object-fit: contain; background: #000; }
   /* hide go2rtc's native player chrome + mode label; the remote replaces it */
   video::-webkit-media-controls, video::-webkit-media-controls-enclosure,
   video::-webkit-media-controls-panel { display: none !important; -webkit-appearance: none !important; }
@@ -63,7 +63,6 @@
 </head>
 <body>
 <div id="stage">
-  <video-stream id="v"></video-stream>
   <div id="touch"></div>
   <div id="flash"></div>
   <div id="unmute">🔇 Tap anywhere for sound</div>
@@ -123,75 +122,129 @@ const MODE = {
 let quality = localStorage.getItem('stream_quality') || 'hd';
 let mode = localStorage.getItem('stream_mode') || 'live';
 
-let v;                    // current <video-stream> element (recreated on switch)
+let v = null;             // current LIVE player element
+let pending = null;       // player loading during a make-before-break switch
+let wantSound = false;    // has the user enabled sound this session
+let switchSeq = 0;        // guards against overlapping rapid switches
+const SWITCH_TIMEOUT = 15000;   // ms to wait for the new player before forcing the swap
+const stage = document.getElementById('stage');
 const touch = document.getElementById('touch');
 const unmuteHint = document.getElementById('unmute');
 const qualBtn = document.getElementById('qual');
 const modeBtn = document.getElementById('mode');
 
-// The actual media element differs by mode: <video-stream> wraps an inner .video
-// (WebRTC), while HLS is a bare <video>. This returns whichever is live.
-function mediaEl() {
-  if (!v) return null;
-  return v.tagName === 'VIDEO' ? v : v.video;
+// The real media element: <video-stream> wraps an inner .video (WebRTC); HLS is a
+// bare <video>. Returns the media element of a given player (or the live one).
+function playerMedia(el) {
+  if (!el) return null;
+  return el.tagName === 'VIDEO' ? el : el.video;
 }
+function mediaEl() { return playerMedia(v); }
 
-// Fully release the OLD element before swapping. Without this, switching Live->Buffered
-// leaves the WebRTC element's WebSocket+PeerConnection alive (its disconnectedCallback
-// is suppressed by background=true), and a native HLS <video> keeps the decoder — so the
-// new stream can't acquire the pipeline (it worked only after a fresh page/app launch).
+// Fully release a player: close the WebRTC ws+pc (its disconnectedCallback is
+// suppressed by background=true, so call ondisconnect directly), or release the
+// native HLS decoder. Leaving these alive starves the next stream's pipeline.
 function teardown(el) {
   if (!el) return;
   try {
     if (el.tagName === 'VIDEO-STREAM') {
       el.background = false;
-      if (typeof el.ondisconnect === 'function') el.ondisconnect();  // closes ws + pc, clears video
+      if (typeof el.ondisconnect === 'function') el.ondisconnect();
     } else if (el.tagName === 'VIDEO') {
       el.pause();
       el.removeAttribute('src');
-      el.load();                                                     // release the HLS decoder
+      el.load();
     }
   } catch (e) {}
 }
 
-function connect() {
-  const q = QUALITY[quality] || QUALITY.hd;
-  const m = MODE[mode] || MODE.live;
-  const old = document.getElementById('v');
-  teardown(old);
+// Build (but don't swap in) a player for quality q + mode m. Starts muted.
+function buildPlayer(q, m) {
+  let el;
   if (m.kind === 'hls') {
     // Native HLS: the browser plays the .m3u8 directly (hardware, deeply buffered).
-    const el = document.createElement('video');
-    el.id = 'v';
-    el.autoplay = true; el.muted = true; el.controls = false;
-    el.playsInline = true;
+    el = document.createElement('video');
+    el.className = 'player';
+    el.autoplay = true; el.muted = true; el.controls = false; el.playsInline = true;
     el.setAttribute('playsinline', ''); el.setAttribute('webkit-playsinline', '');
     el.src = new URL('api/stream.m3u8?src=' + q.src, location.href).href;
-    old.replaceWith(el);
-    v = el;
     el.play().catch(() => {});
   } else {
-    // WebRTC via go2rtc's component. webrtc is primary; mse is only a last-ditch
-    // fallback if webrtc can't negotiate at all (rare) — better than a black screen.
-    const el = document.createElement('video-stream');
-    el.id = 'v';
-    old.replaceWith(el);
-    v = el;
+    // WebRTC via go2rtc's component; mse only as a last-ditch fallback.
+    el = document.createElement('video-stream');
+    el.className = 'player';
     customElements.whenDefined('video-stream').then(() => {
       el.mode = 'webrtc,mse';
-      el.background = true;               // keep playing when hidden, don't disconnect
+      el.background = true;
       el.src = new URL('api/ws?src=' + q.src, location.href);
-      const iv = setInterval(() => { if (el.video) { el.video.controls = false; clearInterval(iv); } }, 200);
+      const iv = setInterval(() => {
+        if (el.video) { el.video.muted = true; el.video.controls = false; clearInterval(iv); }
+      }, 100);
       setTimeout(() => clearInterval(iv), 8000);
     });
   }
+  return el;
+}
+
+// A player is "showing" once its media has a decoded frame and is advancing.
+function playerReady(el) {
+  const m = playerMedia(el);
+  return !!(m && m.videoWidth > 0 && m.readyState >= 2 && !m.paused);
+}
+
+// Make-before-break switch: keep the current player on screen while the new one loads
+// underneath (muted), then cross-fade and only THEN tear the old one down. A timeout
+// forces the swap if the new player never comes up — so it's never worse than a plain
+// reconnect. This turns the multi-second black gap into a ~300ms dissolve.
+function connect() {
+  const q = QUALITY[quality] || QUALITY.hd;
+  const m = MODE[mode] || MODE.live;
   qualBtn.textContent = q.label;
   modeBtn.textContent = m.label;
+
+  const seq = ++switchSeq;
+  if (pending) { teardown(pending); pending.remove(); pending = null; }  // drop a half-loaded switch
+
+  const el = buildPlayer(q, m);
+  el.style.transition = 'opacity 300ms ease';
+
+  if (!v) {                       // first load: nothing to fade from
+    el.style.opacity = '1';
+    stage.prepend(el);
+    v = el;
+    return;
+  }
+
+  el.style.opacity = '0';
+  v.after(el);                    // new sits just above old (both below the overlays)
+  pending = el;
+
+  const swap = (ready) => {
+    if (seq !== switchSeq) return;               // superseded by a newer switch
+    const oldV = v;
+    const om = playerMedia(oldV);
+    if (om) om.muted = true;                      // avoid double audio during the fade
+    v = el;
+    pending = null;
+    el.style.opacity = '1';
+    if (wantSound) unmute();                      // carry the user's sound choice over
+    setTimeout(() => { if (oldV && oldV !== el) { teardown(oldV); oldV.remove(); } }, ready ? 320 : 0);
+  };
+
+  const start = Date.now();
+  const poll = () => {
+    if (seq !== switchSeq) return;
+    if (playerReady(el)) return swap(true);
+    if (Date.now() - start > SWITCH_TIMEOUT) return swap(false);
+    setTimeout(poll, 120);
+  };
+  poll();
 }
 
 // Unmute is re-runnable: mobile Safari re-mutes on wake/reconnect, so every tap or
 // keypress re-asserts sound; the watcher re-shows the hint whenever it's muted.
 function unmute() {
+  wantSound = true;
   try { const el = mediaEl(); if (el) { el.muted = false; el.volume = 1; el.play().catch(() => {}); } } catch (e) {}
 }
 setInterval(() => {
