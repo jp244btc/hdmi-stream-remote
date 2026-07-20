@@ -1,0 +1,11 @@
+# Never commit real Wi-Fi credentials
+settings.toml
+
+# CircuitPython firmware / library bundles (download these yourself)
+*.uf2
+lib/
+*.zip
+
+# Local scratch
+*.log
+.DS_Store

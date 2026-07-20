@@ -1,0 +1,17 @@
+[Unit]
+Description=Keep the go2rtc encoder session warm
+After=go2rtc.service
+Wants=go2rtc.service
+
+[Service]
+# Holds one consumer on go2rtc's local copy of the stream, which keeps go2rtc's
+# single connection to the encoder permanently established. Cheap encoders are
+# flaky to (re)connect but rock-solid once flowing — so holding it open means the
+# browser always joins an already-live stream instantly, with no cold-start wait.
+# "-c copy -f null" discards the data at near-zero CPU. Restart=always re-holds it.
+ExecStart=/usr/bin/ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -c copy -f null -
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

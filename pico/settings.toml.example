@@ -1,0 +1,5 @@
+# Rename to settings.toml on the Pico's CIRCUITPY drive and fill in your Wi-Fi.
+# CircuitPython reads these automatically at boot; code.py uses them to join.
+# NOTE: the SSID is case-sensitive — copy it exactly as your network broadcasts it.
+CIRCUITPY_WIFI_SSID = "YOUR_WIFI_NAME"
+CIRCUITPY_WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"

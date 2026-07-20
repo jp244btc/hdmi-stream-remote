@@ -1,0 +1,30 @@
+# go2rtc restreams the HDMI encoder's RTSP feed to WebRTC (smooth video + audio
+# in any browser). Put this at /etc/go2rtc/go2rtc.yaml.
+#
+# Replace the two IPs:
+#   SERVER_IP   = the LAN IP of THIS host (running go2rtc)
+#   ENCODER_IP  = the LAN IP of your HDMI encoder
+api:
+  listen: "127.0.0.1:11984"          # localhost only; nginx fronts it (see nginx.conf)
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - SERVER_IP:8555                 # <-- this host's LAN IP; required or WebRTC won't connect
+
+rtsp:
+  listen: ":8554"                    # go2rtc's own RTSP server (used by the keep-warm holder)
+
+streams:
+  # Main stream. #timeout=30 rides out cheap encoders whose RTSP handshake is
+  # slow/flaky (they're rock-solid once connected). The ffmpeg line adds an Opus
+  # audio track because Safari WebRTC won't play the encoder's AAC; MSE still
+  # gets the original AAC, so both playback paths have sound.
+  tv:
+    - "rtsp://ENCODER_IP:554/stream0#timeout=30"
+    - "ffmpeg:tv#audio=opus"
+
+  # Optional lower-bitrate second stream (encoder substream) for weak/remote links.
+  tv_low:
+    - "rtsp://ENCODER_IP:554/sub0#timeout=30"
+    - "ffmpeg:tv_low#audio=opus"
