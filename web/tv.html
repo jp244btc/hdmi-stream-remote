@@ -106,9 +106,11 @@
 // There's no universally "best" combo — it depends on your link. On many cellular
 // connections Live actually beats Buffered because WebRTC degrades more gracefully.
 const QUALITY = {
-  hd:   { src: 'tv',     label: '🖥 HD 1080p' },
-  lite: { src: 'tv_low', label: '📱 Lite 720p' },
+  hd:    { src: 'tv',        label: '🖥 HD 1080p' },
+  lite:  { src: 'tv_low',    label: '📱 Lite 720p' },
+  saver: { src: 'tv_mobile', label: '🐢 Saver 480p' },   // on-demand transcode; few-sec cold start
 };
+const QORDER = ['hd', 'lite', 'saver'];
 const MODE = {
   live:     { mode: 'webrtc,mse', label: '⚡ Live' },
   buffered: { mode: 'mse',        label: '🌊 Buffered' },
@@ -179,7 +181,8 @@ document.querySelectorAll('button[data-k]').forEach(btn => {
 // stream-setting toggles (each independent, persisted, reconnect on change)
 qualBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  quality = (quality === 'hd') ? 'lite' : 'hd';
+  const i = QORDER.indexOf(quality);
+  quality = QORDER[(i + 1) % QORDER.length];   // HD -> Lite -> Saver -> HD
   localStorage.setItem('stream_quality', quality);
   connect();
 });

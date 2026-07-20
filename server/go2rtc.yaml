@@ -28,3 +28,12 @@ streams:
   tv_low:
     - "rtsp://ENCODER_IP:554/sub0#timeout=30"
     - "ffmpeg:tv_low#audio=opus"
+
+  # Data-saver 480p tier for weak cellular. This one is a software transcode of the
+  # already-warm 'tv' stream (not a third encoder feed), so it works with any encoder
+  # and adds no encoder load. go2rtc runs this ffmpeg ON DEMAND — only while someone
+  # is actually watching Saver — so it costs ~nothing when unused (expect a few
+  # seconds of cold-start when you switch to it). It re-encodes to 854x480 ~1.2 Mbps
+  # and emits BOTH AAC (for MSE) and Opus (for WebRTC). Needs ffmpeg built with libx264.
+  tv_mobile:
+    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -vf scale=854:480 -b:v 1200k -maxrate 1300k -bufsize 1600k -g 60 -pix_fmt yuv420p -map 0:a -c:a:0 aac -b:a:0 96k -map 0:a -c:a:1 libopus -b:a:1 96k -application:a:1 lowdelay -f rtsp {output}"

@@ -80,10 +80,18 @@ rate is a good default. Keep the source box output at a plain resolution (1080p)
 PCM/stereo audio for the cleanest capture.
 
 **For weak cellular**, the biggest single win is a lighter stream than 720p/3 Mbps —
-congested, indoor, or moving cells often sit at 0.5–1.5 Mbps, where 3 Mbps stalls. If
-your encoder can produce a third stream, add a **~480p (854×480) CBR ~1.2 Mbps** tier
-and point the Cellular profile at it. Note: changing encoder profiles briefly restarts
-the capture and interrupts anyone watching, so do it when nobody's mid-show.
+congested, indoor, or moving cells often sit at 0.5–1.5 Mbps, where 3 Mbps stalls. This
+repo ships a **Saver 480p** tier for exactly that: the `tv_mobile` stream in
+[`server/go2rtc.yaml`](server/go2rtc.yaml) is a software **transcode** of the warm `tv`
+stream down to 854×480 ~1.2 Mbps. It needs `ffmpeg` built with **libx264**, runs only
+on demand (go2rtc spins it up when someone selects Saver and stops it when they leave),
+adds no load to the encoder, and works regardless of what your encoder can produce.
+A CPU-only host handles one 480p transcode easily (~0.2 of a core here).
+
+If you'd rather offload it, and your encoder supports a *third* concurrent hardware
+encode, you can instead point `tv_mobile` at a real 480p encoder substream — but that
+means a native encoder feed (and changing encoder profiles briefly restarts capture,
+interrupting anyone watching, so do it when nobody's mid-show).
 
 ### 2. Linux host — go2rtc + nginx
 
@@ -154,7 +162,9 @@ full-screen like an app.
 - **⏯ Pause:** a single-press play/pause for video players (the OK button sends a
   double-select which some players read as pause-then-play).
 - **Stream settings** (bottom-left, two independent toggles, both remembered):
-  - **🖥 HD 1080p / 📱 Lite 720p** — resolution/bitrate (which stream).
+  - **🖥 HD 1080p / 📱 Lite 720p / 🐢 Saver 480p** — resolution/bitrate (which stream).
+    Saver is an on-demand ~1.2 Mbps transcode for weak cellular; expect a few seconds
+    of cold-start when you switch to it (see the encoder note below).
   - **⚡ Live / 🌊 Buffered** — transport:
     - **Live** = WebRTC (UDP). Real-time (~0.2–0.5 s), adapts its bitrate on the fly,
       and drops individual frames under loss rather than stalling.
