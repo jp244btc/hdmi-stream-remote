@@ -136,9 +136,29 @@ function mediaEl() {
   return v.tagName === 'VIDEO' ? v : v.video;
 }
 
+// Fully release the OLD element before swapping. Without this, switching Live->Buffered
+// leaves the WebRTC element's WebSocket+PeerConnection alive (its disconnectedCallback
+// is suppressed by background=true), and a native HLS <video> keeps the decoder — so the
+// new stream can't acquire the pipeline (it worked only after a fresh page/app launch).
+function teardown(el) {
+  if (!el) return;
+  try {
+    if (el.tagName === 'VIDEO-STREAM') {
+      el.background = false;
+      if (typeof el.ondisconnect === 'function') el.ondisconnect();  // closes ws + pc, clears video
+    } else if (el.tagName === 'VIDEO') {
+      el.pause();
+      el.removeAttribute('src');
+      el.load();                                                     // release the HLS decoder
+    }
+  } catch (e) {}
+}
+
 function connect() {
   const q = QUALITY[quality] || QUALITY.hd;
   const m = MODE[mode] || MODE.live;
+  const old = document.getElementById('v');
+  teardown(old);
   if (m.kind === 'hls') {
     // Native HLS: the browser plays the .m3u8 directly (hardware, deeply buffered).
     const el = document.createElement('video');
@@ -147,7 +167,7 @@ function connect() {
     el.playsInline = true;
     el.setAttribute('playsinline', ''); el.setAttribute('webkit-playsinline', '');
     el.src = new URL('api/stream.m3u8?src=' + q.src, location.href).href;
-    document.getElementById('v').replaceWith(el);
+    old.replaceWith(el);
     v = el;
     el.play().catch(() => {});
   } else {
@@ -155,7 +175,7 @@ function connect() {
     // fallback if webrtc can't negotiate at all (rare) — better than a black screen.
     const el = document.createElement('video-stream');
     el.id = 'v';
-    document.getElementById('v').replaceWith(el);
+    old.replaceWith(el);
     v = el;
     customElements.whenDefined('video-stream').then(() => {
       el.mode = 'webrtc,mse';
