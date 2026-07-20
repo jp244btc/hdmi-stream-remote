@@ -28,7 +28,7 @@
     backdrop-filter: blur(6px); display: none; }
   #unmute.show { display: block; }
 
-  /* control dock */
+  /* remote dock, bottom-right */
   #dock { position: absolute; z-index: 9; right: env(safe-area-inset-right, 10px); bottom: env(safe-area-inset-bottom, 10px);
     display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
   #panel { display: grid; grid-template-columns: repeat(3, 56px); grid-template-rows: repeat(3, 56px); gap: 8px;
@@ -44,9 +44,17 @@
     background: rgba(20,22,28,.55); backdrop-filter: blur(10px); }
   .ok { background: rgba(90,150,255,.30) !important; font-size: 15px; font-weight: 700; }
   .pause { background: rgba(120,200,120,.30) !important; font-size: 15px; font-weight: 700; }
-  #prof { height: 40px !important; font-size: 13px; }
   #tgl { width: 48px; height: 48px; font-size: 20px; background: rgba(20,22,28,.55); backdrop-filter: blur(10px); border-radius: 14px; }
   .sp { visibility: hidden; }
+
+  /* stream settings, bottom-left */
+  #settings { position: absolute; z-index: 9; left: env(safe-area-inset-left, 10px); bottom: env(safe-area-inset-bottom, 10px);
+    display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+  button.set { border: none; color: #fff; width: 132px; height: 44px; border-radius: 14px; font-size: 14px; font-weight: 600;
+    background: rgba(20,22,28,.55); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center;
+    touch-action: manipulation; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+  button.set:active { transform: scale(.96); }
+
   #flash { position: absolute; z-index: 7; width: 46px; height: 46px; margin: -23px 0 0 -23px; border: 2px solid #6ea8ff;
     border-radius: 50%; pointer-events: none; opacity: 0; }
   @keyframes ping { from { opacity: .9; transform: scale(.4);} to { opacity: 0; transform: scale(1.3);} }
@@ -60,9 +68,15 @@
   <div id="flash"></div>
   <div id="unmute">🔇 Tap anywhere for sound</div>
 
+  <!-- stream settings: two independent axes -->
+  <div id="settings">
+    <button id="qual" class="set">🖥 HD 1080p</button>
+    <button id="mode" class="set">⚡ Live</button>
+  </div>
+
+  <!-- remote -->
   <div id="dock">
     <button id="tgl" class="b">✛</button>
-    <button id="prof" class="b wide">📶 Home</button>
     <button class="b wide pause" data-k="pause">⏯ Pause</button>
     <div class="row2">
       <button class="b wide" data-k="back">‹ Back</button>
@@ -83,37 +97,47 @@
 </div>
 
 <script>
-// Connection profiles. Names ('tv', 'tv_low') must match the streams in go2rtc.yaml.
-//   Home     = WebRTC (UDP, real-time, sharp) on the full stream. Best on LAN.
-//   Cellular = MSE (WebSocket/TCP, buffered) on the lighter substream. TCP resends
-//              lost packets and the browser buffers ~1-3s, so video stays smooth on
-//              a lossy mobile link instead of dropping to a slideshow (which is what
-//              WebRTC does under packet loss — it drops frames to stay real-time).
-const PROFILES = {
-  home: { mode: 'webrtc,mse', src: 'tv',     label: '📶 Home' },
-  cell: { mode: 'mse',        src: 'tv_low', label: '📱 Cellular' },
+// Two INDEPENDENT axes you can mix freely (both persisted). Stream names ('tv',
+// 'tv_low') must match the streams in go2rtc.yaml.
+//   quality:  HD (full stream, 'tv')  |  Lite (substream, 'tv_low')  -> the stream src
+//   mode:     Live (WebRTC: real-time, adapts bitrate, drops frames under loss)
+//             Buffered (MSE: TCP, buffers ~1-2s; smooth on jittery links, but a
+//             lossy link can stall it via TCP head-of-line blocking)   -> the transport
+// There's no universally "best" combo — it depends on your link. On many cellular
+// connections Live actually beats Buffered because WebRTC degrades more gracefully.
+const QUALITY = {
+  hd:   { src: 'tv',     label: '🖥 HD 1080p' },
+  lite: { src: 'tv_low', label: '📱 Lite 720p' },
 };
-let profile = localStorage.getItem('stream_profile') || 'home';
+const MODE = {
+  live:     { mode: 'webrtc,mse', label: '⚡ Live' },
+  buffered: { mode: 'mse',        label: '🌊 Buffered' },
+};
+let quality = localStorage.getItem('stream_quality') || 'hd';
+let mode = localStorage.getItem('stream_mode') || 'live';
 
 let v;                    // current <video-stream> element (recreated on switch)
 const touch = document.getElementById('touch');
 const unmuteHint = document.getElementById('unmute');
-const profBtn = document.getElementById('prof');
+const qualBtn = document.getElementById('qual');
+const modeBtn = document.getElementById('mode');
 
 function connect() {
-  const p = PROFILES[profile] || PROFILES.home;
+  const q = QUALITY[quality] || QUALITY.hd;
+  const m = MODE[mode] || MODE.live;
   const el = document.createElement('video-stream');
   el.id = 'v';
   document.getElementById('v').replaceWith(el);
   v = el;
   customElements.whenDefined('video-stream').then(() => {
-    el.mode = p.mode;
+    el.mode = m.mode;
     el.background = true;                 // keep playing when hidden, don't disconnect
-    el.src = new URL('api/ws?src=' + p.src, location.href);
+    el.src = new URL('api/ws?src=' + q.src, location.href);
     const iv = setInterval(() => { if (el.video) { el.video.controls = false; clearInterval(iv); } }, 200);
     setTimeout(() => clearInterval(iv), 8000);
   });
-  profBtn.textContent = p.label;
+  qualBtn.textContent = q.label;
+  modeBtn.textContent = m.label;
 }
 
 // Unmute is re-runnable: mobile Safari re-mutes on wake/reconnect, so every tap or
@@ -128,26 +152,22 @@ setInterval(() => {
 
 async function ctl(path) { try { await fetch('/ctl/' + path, { method: 'POST' }); } catch (e) {} }
 
-// Button -> Pico endpoint.
-// Back/Home are consumer-control codes (AC Back / AC Home) because many Android
-// boxes ignore a keyboard's Escape as "Back".
+// Button -> Pico endpoint. Back/Home are consumer-control codes because many
+// Android boxes ignore a keyboard's Escape as "Back".
 const EP = {
   up: 'key?k=up', down: 'key?k=down', left: 'key?k=left', right: 'key?k=right',
   back: 'cons?u=224', home: 'cons?u=223',
-  // Single keypad-Enter = one clean pause/play toggle, unlike OK which fires BOTH
-  // Enter variants (see sendOk) and would toggle pause twice.
+  // Single keypad-Enter = one clean pause/play toggle (OK sends BOTH Enter variants
+  // and would toggle pause twice).
   pause: 'raw?kc=88',
 };
 
-// OK/SELECT: some launchers want plain Enter (keycode 40) while some player apps
-// want keypad-Enter (keycode 88). Fire both — the one the current screen ignores is
-// a harmless no-op. If your box is happy with just one, simplify this.
+// OK/SELECT: some launchers want plain Enter (keycode 40) while some player apps want
+// keypad-Enter (keycode 88). Fire both — the ignored one is a harmless no-op.
 async function sendOk() { await ctl('raw?kc=88'); setTimeout(() => ctl('raw?kc=40'), 110); }
 
-// Tapping the video only (re)enables sound. Navigation is via the buttons below.
 touch.addEventListener('pointerup', () => unmute());
 
-// on-screen control buttons
 document.querySelectorAll('button[data-k]').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation(); unmute();
@@ -156,11 +176,17 @@ document.querySelectorAll('button[data-k]').forEach(btn => {
   });
 });
 
-// Home <-> Cellular toggle (persisted). Reconnects with the new transport + stream.
-profBtn.addEventListener('click', (e) => {
+// stream-setting toggles (each independent, persisted, reconnect on change)
+qualBtn.addEventListener('click', (e) => {
   e.stopPropagation();
-  profile = (profile === 'home') ? 'cell' : 'home';
-  localStorage.setItem('stream_profile', profile);
+  quality = (quality === 'hd') ? 'lite' : 'hd';
+  localStorage.setItem('stream_quality', quality);
+  connect();
+});
+modeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  mode = (mode === 'live') ? 'buffered' : 'live';
+  localStorage.setItem('stream_mode', mode);
   connect();
 });
 

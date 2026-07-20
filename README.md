@@ -153,10 +153,18 @@ full-screen like an app.
 - **D-pad / OK / Back / Home:** the on-screen buttons; `✛` collapses the D-pad.
 - **⏯ Pause:** a single-press play/pause for video players (the OK button sends a
   double-select which some players read as pause-then-play).
-- **📶 Home / 📱 Cellular:** transport switch (remembered across launches):
-  - **Home** — WebRTC, full resolution, near-instant. Use on Wi-Fi.
-  - **Cellular** — buffered MSE on the lighter stream. ~1–3 s behind live, but stays
-    smooth on lossy mobile data instead of stuttering into a slideshow.
+- **Stream settings** (bottom-left, two independent toggles, both remembered):
+  - **🖥 HD 1080p / 📱 Lite 720p** — resolution/bitrate (which stream).
+  - **⚡ Live / 🌊 Buffered** — transport:
+    - **Live** = WebRTC (UDP). Real-time (~0.2–0.5 s), adapts its bitrate on the fly,
+      and drops individual frames under loss rather than stalling.
+    - **Buffered** = MSE (WebSocket/TCP). Buffers ~1–2 s and resends lost packets —
+      smooth on a *jittery* link, but a genuinely *lossy* link can stall it (TCP
+      head-of-line blocking).
+  - There is **no universally best combo** — it depends on your connection. Counter-
+    intuitively, **Live often wins on cellular** because WebRTC degrades more
+    gracefully than a stalled TCP buffer. Try both and keep what looks best; on a
+    weak signal, drop to **Lite** first.
 - **Hardware keyboard** (e.g. iPad Magic Keyboard): arrows navigate, **Return** = OK,
   **Delete/Backspace/Esc** = Back, **Space** = Pause.
 
