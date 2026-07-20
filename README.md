@@ -75,9 +75,15 @@ typically something like:
 - main: `rtsp://<ENCODER_IP>:554/stream0`  (1080p30, ~8 Mbps, CBR)
 - sub:  `rtsp://<ENCODER_IP>:554/sub0`     (720p30,  ~3 Mbps, CBR)
 
-Give the encoder a **static/reserved IP**. A GOP (keyframe interval) of ~2× the frame
-rate is a good default. Keep the source box output at a plain resolution (1080p) with
-PCM/stereo audio for the cleanest capture.
+Give the encoder a **static/reserved IP**. A short GOP (keyframe interval) — ideally
+~1× the frame rate — is best, because native HLS can only start at a keyframe. **Heads
+up:** many cheap hardware encoders emit a keyframe only every several seconds *no matter
+what their GOP setting says* (the field is effectively ignored). If yours does, native
+HLS will be slow to start — which is exactly why the Buffered tiers in this project are
+**software-transcoded** with a forced 0.5 s keyframe (`tv_hls` / `tv_low_hls` /
+`tv_mobile` in [`server/go2rtc.yaml`](server/go2rtc.yaml)) instead of copied from the
+encoder. Keep the source box output at a plain resolution (1080p) with PCM/stereo audio
+for the cleanest capture.
 
 **For weak cellular**, the biggest single win is a lighter stream than 720p/3 Mbps —
 congested, indoor, or moving cells often sit at 0.5–1.5 Mbps, where 3 Mbps stalls. This
@@ -170,7 +176,9 @@ full-screen like an app.
       dropping frames rather than stalling. Your daily driver.
     - **Buffered** = **native HLS** (the browser's own `.m3u8` player). Hardware-
       decoded and deeply buffered — rock-solid on a genuinely bad link — but runs
-      **~6–10 s behind live**. Use it only as a worst-case escape hatch.
+      **~6–10 s behind live**. Use it only as a worst-case escape hatch. Buffered is
+      served from short-GOP transcodes (the `tv_hls` / `tv_low_hls` / `tv_mobile`
+      streams) so HLS starts in ~1–2 s; see the encoder note about keyframes below.
   - Note: go2rtc's MSE mode is deliberately *not* used here. On iOS Safari its
     Managed Media Source fights go2rtc's low-latency push feed and stutters even on a
     clean LAN, so Buffered uses native HLS instead — the format iOS plays flawlessly.

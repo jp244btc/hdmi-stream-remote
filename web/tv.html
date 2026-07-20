@@ -110,6 +110,11 @@ const QUALITY = {
   saver: { src: 'tv_mobile', label: '🐢 Saver 480p' },   // on-demand transcode; few-sec cold start
 };
 const QORDER = ['hd', 'lite', 'saver'];
+// Buffered/HLS uses short-GOP (0.5s keyframe) transcode variants so it starts in ~1-2s.
+// Many hardware encoders emit keyframes only every several seconds regardless of their
+// GOP setting, which makes native HLS slow to start; Live/WebRTC is unaffected (it asks
+// for a keyframe on connect), so it keeps the passthrough streams above.
+const BUFFERED_SRC = { hd: 'tv_hls', lite: 'tv_low_hls', saver: 'tv_mobile' };
 // Live = WebRTC (go2rtc <video-stream>): ~0.5s latency, great on decent links.
 // Buffered = native HLS (a plain <video> playing go2rtc's .m3u8): the browser's own
 //   hardware player, deeply buffered & rock-solid on bad links — but ~6-10s behind
@@ -158,16 +163,17 @@ function teardown(el) {
   } catch (e) {}
 }
 
-// Build (but don't swap in) a player for quality q + mode m. Starts muted.
-function buildPlayer(q, m) {
+// Build (but don't swap in) a player for go2rtc stream `srcName` in `kind`
+// ('hls' | 'webrtc'). Starts muted.
+function buildPlayer(srcName, kind) {
   let el;
-  if (m.kind === 'hls') {
+  if (kind === 'hls') {
     // Native HLS: the browser plays the .m3u8 directly (hardware, deeply buffered).
     el = document.createElement('video');
     el.className = 'player';
     el.autoplay = true; el.muted = true; el.controls = false; el.playsInline = true;
     el.setAttribute('playsinline', ''); el.setAttribute('webkit-playsinline', '');
-    el.src = new URL('api/stream.m3u8?src=' + q.src, location.href).href;
+    el.src = new URL('api/stream.m3u8?src=' + srcName, location.href).href;
     el.play().catch(() => {});
   } else {
     // WebRTC via go2rtc's component; mse only as a last-ditch fallback.
@@ -176,7 +182,7 @@ function buildPlayer(q, m) {
     customElements.whenDefined('video-stream').then(() => {
       el.mode = 'webrtc,mse';
       el.background = true;
-      el.src = new URL('api/ws?src=' + q.src, location.href);
+      el.src = new URL('api/ws?src=' + srcName, location.href);
       const iv = setInterval(() => {
         if (el.video) { el.video.muted = true; el.video.controls = false; clearInterval(iv); }
       }, 100);
@@ -205,7 +211,9 @@ function connect() {
   const seq = ++switchSeq;
   if (pending) { teardown(pending); pending.remove(); pending = null; }  // drop a half-loaded switch
 
-  const el = buildPlayer(q, m);
+  // Buffered/HLS uses the short-GOP transcode variants so it starts fast; Live uses passthrough.
+  const srcName = (m.kind === 'hls') ? (BUFFERED_SRC[quality] || q.src) : q.src;
+  const el = buildPlayer(srcName, m.kind);
   el.style.transition = 'opacity 300ms ease';
 
   if (!v) {                       // first load: nothing to fade from

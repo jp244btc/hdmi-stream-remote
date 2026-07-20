@@ -36,8 +36,22 @@ streams:
   # seconds of cold-start when you switch to it). It re-encodes to 854x480 ~1.2 Mbps
   # and emits BOTH AAC (for MSE) and Opus (for WebRTC). Needs ffmpeg built with libx264.
   tv_mobile:
-    # Video-only transcode to 480p; AUDIO IS COPIED THROUGH untouched (re-encoding it
-    # in the same process as the heavy x264 encode starves it -> choppy audio). The
-    # second line adds Opus for WebRTC the same way the other streams do.
-    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -vf scale=854:480 -b:v 1200k -maxrate 1300k -bufsize 1600k -g 60 -pix_fmt yuv420p -map 0:a -c:a copy -f rtsp {output}"
+    # Data-saver 480p tier. Video-only transcode; AUDIO IS COPIED THROUGH untouched
+    # (re-encoding it in the same process as the x264 encode starves it -> choppy audio).
+    # g=15 => a keyframe every 0.5s so HLS (Buffered mode) starts fast; many hardware
+    # encoders emit keyframes only every several seconds regardless of their GOP setting,
+    # which makes native-HLS startup slow, so the Buffered tiers are transcoded. Used for
+    # Saver in BOTH Live and Buffered. Second line adds Opus for WebRTC.
+    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -vf scale=854:480 -b:v 1200k -maxrate 1300k -bufsize 1600k -g 15 -pix_fmt yuv420p -map 0:a -c:a copy -f rtsp {output}"
     - "ffmpeg:tv_mobile#audio=opus"
+
+  # Short-GOP (0.5s keyframe) transcodes used ONLY by Buffered/HLS mode, so it starts in
+  # ~1-2s instead of many seconds. Live/WebRTC keeps the passthrough streams above (it
+  # requests a keyframe on connect, so it needs no transcode). On-demand: each runs only
+  # while someone is on that Buffered quality.
+  tv_hls:                 # Buffered HD (1080p)
+    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -b:v 8000k -maxrate 8500k -bufsize 9000k -g 15 -pix_fmt yuv420p -map 0:a -c:a copy -f rtsp {output}"
+    - "ffmpeg:tv_hls#audio=opus"
+  tv_low_hls:             # Buffered Lite (720p)
+    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -vf scale=1280:720 -b:v 3500k -maxrate 3800k -bufsize 4200k -g 15 -pix_fmt yuv420p -map 0:a -c:a copy -f rtsp {output}"
+    - "ffmpeg:tv_low_hls#audio=opus"
