@@ -36,4 +36,8 @@ streams:
   # seconds of cold-start when you switch to it). It re-encodes to 854x480 ~1.2 Mbps
   # and emits BOTH AAC (for MSE) and Opus (for WebRTC). Needs ffmpeg built with libx264.
   tv_mobile:
-    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -vf scale=854:480 -b:v 1200k -maxrate 1300k -bufsize 1600k -g 60 -pix_fmt yuv420p -map 0:a -c:a:0 aac -b:a:0 96k -map 0:a -c:a:1 libopus -b:a:1 96k -application:a:1 lowdelay -f rtsp {output}"
+    # Video-only transcode to 480p; AUDIO IS COPIED THROUGH untouched (re-encoding it
+    # in the same process as the heavy x264 encode starves it -> choppy audio). The
+    # second line adds Opus for WebRTC the same way the other streams do.
+    - "exec:ffmpeg -hide_banner -loglevel error -rtsp_transport tcp -i rtsp://127.0.0.1:8554/tv -map 0:v -c:v libx264 -preset veryfast -tune zerolatency -vf scale=854:480 -b:v 1200k -maxrate 1300k -bufsize 1600k -g 60 -pix_fmt yuv420p -map 0:a -c:a copy -f rtsp {output}"
+    - "ffmpeg:tv_mobile#audio=opus"

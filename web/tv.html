@@ -13,8 +13,8 @@
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: -apple-system, system-ui, sans-serif; }
   #stage { position: fixed; inset: 0; }
-  video-stream { position: absolute; inset: 0; width: 100%; height: 100%; }
-  video-stream video { width: 100% !important; height: 100% !important; object-fit: contain; background: #000; }
+  video-stream, video#v { position: absolute; inset: 0; width: 100%; height: 100%; }
+  video-stream video, video#v { width: 100% !important; height: 100% !important; object-fit: contain; background: #000; }
   /* hide go2rtc's native player chrome + mode label; the remote replaces it */
   video::-webkit-media-controls, video::-webkit-media-controls-enclosure,
   video::-webkit-media-controls-panel { display: none !important; -webkit-appearance: none !important; }
@@ -111,9 +111,14 @@ const QUALITY = {
   saver: { src: 'tv_mobile', label: '🐢 Saver 480p' },   // on-demand transcode; few-sec cold start
 };
 const QORDER = ['hd', 'lite', 'saver'];
+// Live = WebRTC (go2rtc <video-stream>): ~0.5s latency, great on decent links.
+// Buffered = native HLS (a plain <video> playing go2rtc's .m3u8): the browser's own
+//   hardware player, deeply buffered & rock-solid on bad links — but ~6-10s behind
+//   live. On iOS, go2rtc's MSE stutters (Apple's Managed Media Source fights a
+//   low-latency push feed), so native HLS is the correct buffered path there.
 const MODE = {
-  live:     { mode: 'webrtc,mse', label: '⚡ Live' },
-  buffered: { mode: 'mse',        label: '🌊 Buffered' },
+  live:     { kind: 'webrtc', label: '⚡ Live' },
+  buffered: { kind: 'hls',    label: '🌊 Buffered' },
 };
 let quality = localStorage.getItem('stream_quality') || 'hd';
 let mode = localStorage.getItem('stream_mode') || 'live';
@@ -124,20 +129,42 @@ const unmuteHint = document.getElementById('unmute');
 const qualBtn = document.getElementById('qual');
 const modeBtn = document.getElementById('mode');
 
+// The actual media element differs by mode: <video-stream> wraps an inner .video
+// (WebRTC), while HLS is a bare <video>. This returns whichever is live.
+function mediaEl() {
+  if (!v) return null;
+  return v.tagName === 'VIDEO' ? v : v.video;
+}
+
 function connect() {
   const q = QUALITY[quality] || QUALITY.hd;
   const m = MODE[mode] || MODE.live;
-  const el = document.createElement('video-stream');
-  el.id = 'v';
-  document.getElementById('v').replaceWith(el);
-  v = el;
-  customElements.whenDefined('video-stream').then(() => {
-    el.mode = m.mode;
-    el.background = true;                 // keep playing when hidden, don't disconnect
-    el.src = new URL('api/ws?src=' + q.src, location.href);
-    const iv = setInterval(() => { if (el.video) { el.video.controls = false; clearInterval(iv); } }, 200);
-    setTimeout(() => clearInterval(iv), 8000);
-  });
+  if (m.kind === 'hls') {
+    // Native HLS: the browser plays the .m3u8 directly (hardware, deeply buffered).
+    const el = document.createElement('video');
+    el.id = 'v';
+    el.autoplay = true; el.muted = true; el.controls = false;
+    el.playsInline = true;
+    el.setAttribute('playsinline', ''); el.setAttribute('webkit-playsinline', '');
+    el.src = new URL('api/stream.m3u8?src=' + q.src, location.href).href;
+    document.getElementById('v').replaceWith(el);
+    v = el;
+    el.play().catch(() => {});
+  } else {
+    // WebRTC via go2rtc's component. webrtc is primary; mse is only a last-ditch
+    // fallback if webrtc can't negotiate at all (rare) — better than a black screen.
+    const el = document.createElement('video-stream');
+    el.id = 'v';
+    document.getElementById('v').replaceWith(el);
+    v = el;
+    customElements.whenDefined('video-stream').then(() => {
+      el.mode = 'webrtc,mse';
+      el.background = true;               // keep playing when hidden, don't disconnect
+      el.src = new URL('api/ws?src=' + q.src, location.href);
+      const iv = setInterval(() => { if (el.video) { el.video.controls = false; clearInterval(iv); } }, 200);
+      setTimeout(() => clearInterval(iv), 8000);
+    });
+  }
   qualBtn.textContent = q.label;
   modeBtn.textContent = m.label;
 }
@@ -145,10 +172,11 @@ function connect() {
 // Unmute is re-runnable: mobile Safari re-mutes on wake/reconnect, so every tap or
 // keypress re-asserts sound; the watcher re-shows the hint whenever it's muted.
 function unmute() {
-  try { if (v && v.video) { v.video.muted = false; v.video.volume = 1; v.video.play().catch(() => {}); } } catch (e) {}
+  try { const el = mediaEl(); if (el) { el.muted = false; el.volume = 1; el.play().catch(() => {}); } } catch (e) {}
 }
 setInterval(() => {
-  const muted = !v || !v.video || v.video.muted || v.video.paused;
+  const el = mediaEl();
+  const muted = !el || el.muted || el.paused;
   unmuteHint.classList.toggle('show', muted);
 }, 1500);
 

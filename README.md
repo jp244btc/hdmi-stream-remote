@@ -166,15 +166,16 @@ full-screen like an app.
     Saver is an on-demand ~1.2 Mbps transcode for weak cellular; expect a few seconds
     of cold-start when you switch to it (see the encoder note below).
   - **⚡ Live / 🌊 Buffered** — transport:
-    - **Live** = WebRTC (UDP). Real-time (~0.2–0.5 s), adapts its bitrate on the fly,
-      and drops individual frames under loss rather than stalling.
-    - **Buffered** = MSE (WebSocket/TCP). Buffers ~1–2 s and resends lost packets —
-      smooth on a *jittery* link, but a genuinely *lossy* link can stall it (TCP
-      head-of-line blocking).
-  - There is **no universally best combo** — it depends on your connection. Counter-
-    intuitively, **Live often wins on cellular** because WebRTC degrades more
-    gracefully than a stalled TCP buffer. Try both and keep what looks best; on a
-    weak signal, drop to **Lite** first.
+    - **Live** = WebRTC. Real-time (~0.5 s), adapts bitrate on the fly, degrades by
+      dropping frames rather than stalling. Your daily driver.
+    - **Buffered** = **native HLS** (the browser's own `.m3u8` player). Hardware-
+      decoded and deeply buffered — rock-solid on a genuinely bad link — but runs
+      **~6–10 s behind live**. Use it only as a worst-case escape hatch.
+  - Note: go2rtc's MSE mode is deliberately *not* used here. On iOS Safari its
+    Managed Media Source fights go2rtc's low-latency push feed and stutters even on a
+    clean LAN, so Buffered uses native HLS instead — the format iOS plays flawlessly.
+  - **Live usually wins** on both Wi-Fi and cellular; reach for Buffered only when a
+    weak link makes Live unwatchable, and drop to **Lite/Saver** quality first.
 - **Hardware keyboard** (e.g. iPad Magic Keyboard): arrows navigate, **Return** = OK,
   **Delete/Backspace/Esc** = Back, **Space** = Pause.
 
