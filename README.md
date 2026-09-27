@@ -165,8 +165,9 @@ full-screen like an app.
 
 - **Watch:** tap the video once to enable sound (mobile browsers start muted).
 - **D-pad / OK / Back / Home:** the on-screen buttons; `✛` collapses the D-pad.
-- **⏯ Pause:** a single-press play/pause for video players (the OK button sends a
-  double-select which some players read as pause-then-play).
+- **⏯ Pause:** a single-press play/pause for video players (keypad Enter, which
+  player apps read as play/pause; OK sends plain Enter, which most apps treat as
+  select).
 - **Stream settings** (bottom-left, two independent toggles, both remembered):
   - **🖥 HD 1080p / 📱 Lite 720p / 🐢 Saver 480p** — resolution/bitrate (which stream).
     Saver is an on-demand ~1.2 Mbps transcode for weak cellular; expect a few seconds

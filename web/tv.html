@@ -268,22 +268,20 @@ async function ctl(path) { try { await fetch('/ctl/' + path, { method: 'POST' })
 const EP = {
   up: 'key?k=up', down: 'key?k=down', left: 'key?k=left', right: 'key?k=right',
   back: 'cons?u=224', home: 'cons?u=223',
-  // Single keypad-Enter = one clean pause/play toggle (OK sends BOTH Enter variants
-  // and would toggle pause twice).
+  // OK/SELECT: exactly ONE key press per tap. Plain Enter (keycode 40) is the select
+  // key on Android boxes. If your box only honours keypad-Enter, change this to
+  // 'raw?kc=88' — but never send both: a box that accepts both sees a double click.
+  ok: 'raw?kc=40',
+  // Single keypad-Enter = one clean pause/play toggle in player apps.
   pause: 'raw?kc=88',
 };
-
-// OK/SELECT: some launchers want plain Enter (keycode 40) while some player apps want
-// keypad-Enter (keycode 88). Fire both — the ignored one is a harmless no-op.
-async function sendOk() { await ctl('raw?kc=88'); setTimeout(() => ctl('raw?kc=40'), 110); }
 
 touch.addEventListener('pointerup', () => unmute());
 
 document.querySelectorAll('button[data-k]').forEach(btn => {
   btn.addEventListener('click', (e) => {
     e.stopPropagation(); unmute();
-    if (btn.dataset.k === 'ok') sendOk();
-    else ctl(EP[btn.dataset.k] || ('key?k=' + btn.dataset.k));
+    ctl(EP[btn.dataset.k] || ('key?k=' + btn.dataset.k));
   });
 });
 
@@ -315,7 +313,7 @@ window.addEventListener('keydown', (e) => {
     unmute(); ctl(EP[arrows[e.key]]);
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    if (!e.repeat) { unmute(); sendOk(); }
+    if (!e.repeat) { unmute(); ctl(EP.ok); }
   } else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Escape') {
     e.preventDefault();
     if (!e.repeat) { unmute(); ctl(EP.back); }
